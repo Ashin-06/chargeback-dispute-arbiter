@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DisputeArb — Cryptographic Chargeback Arbiter & Visa CE 3.0 Optimizer</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #131b33;
+      --border: #25335a;
+      --text: #e8eefc;
+      --muted: #95a5cd;
+      --accent: #4f8cff;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+      margin-bottom: 20px;
+    }
+    h1 { margin: 0; font-size: 1.35rem; }
+    .subtitle { color: var(--muted); font-size: 0.88rem; margin-top: 4px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 18px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 1.02rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.84rem;
+    }
+    button.danger { background: var(--err); }
+    button.secondary { background: #28365e; }
+    .dispute-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .dispute-item:hover { background: #1a2547; }
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.74rem;
+      font-weight: 700;
+    }
+    .badge.ok { background: rgba(34,197,94,0.18); color: var(--ok); }
+    .badge.warn { background: rgba(245,158,11,0.18); color: var(--warn); }
+    .badge.err { background: rgba(239,68,68,0.18); color: var(--err); }
+    pre {
+      background: #080c18;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      color: #cfe0ff;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px;
+      text-align: left;
+    }
+    th { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Cryptographic Chargeback Dispute Arbiter (Visa CE 3.0 & EV Optimizer)</h1>
+      <div class="subtitle">Ed25519 Signed Receipts • SHA-256 Merkle Inclusion Proofs • Visa CE 3.0 • Expected-Value Representment</div>
+    </div>
+    <div>
+      <button onclick="runBench()">Run 300-Dispute Benchmark</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Sample Disputes (All 4 Categories)</h2>
+        <div id="disputeList">Loading disputes...</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" id="benchCard" style="display:none;">
+        <h2>300-Dispute Benchmark Summary</h2>
+        <div id="benchOutput"></div>
+      </div>
+
+      <div class="card">
+        <h2>Selected Dispute & Cryptographic Tamper Simulator</h2>
+        <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button onclick="evaluateSelected(false)">Verify & Evaluate Authentic</button>
+          <button class="danger" onclick="evaluateSelected('ip')">Tamper Checkout IP</button>
+          <button class="danger" onclick="evaluateSelected('otp')">Tamper Delivery OTP Flag</button>
+          <button class="danger" onclick="evaluateSelected('3ds')">Tamper 3DS2 Status</button>
+        </div>
+        <div id="decisionSummary">Select a dispute from the left panel to inspect its Merkle proof, CE 3.0 matches, and EV calculation.</div>
+      </div>
+
+      <div class="card">
+        <h2>Compiled Representment Evidence Brief (Markdown)</h2>
+        <pre id="briefMarkdown">Select a dispute to view its compiled Representment Evidence Brief.</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let disputes = [];
+    let selectedIndex = 0;
+
+    async function loadDisputes() {
+      const res = await fetch('/disputes');
+      const data = await res.json();
+      disputes = data.disputes || [];
+      const list = document.getElementById('disputeList');
+      list.innerHTML = disputes.map((d, idx) => {
+        const dec = d.decision;
+        const validBadge = dec.verification.valid
+          ? '<span class="badge ok">SIG+MERKLE OK</span>'
+          : '<span class="badge err">TAMPERED</span>';
+        return `
+          <div class="dispute-item" onclick="selectDispute(${idx})">
+            <div style="display:flex; justify-content:space-between;">
+              <strong>${d.claim.dispute_id} (${d.claim.reason_code})</strong>
+              ${validBadge}
+            </div>
+            <div style="font-size:0.8rem; color:#95a5cd; margin-top:4px;">
+              ₹${d.claim.amount_inr.toLocaleString()} • ${dec.classification}
+            </div>
+            <div style="font-size:0.78rem; margin-top:4px;">
+              Action: <code>${dec.recommended_action}</code> | E[Net]: ₹${dec.ev_optimization.expected_net_recovery_inr}
+            </div>
+          </div>
+        `;
+      }).join('');
+      if (disputes.length > 0) selectDispute(0);
+    }
+
+    function selectDispute(idx) {
+      selectedIndex = idx;
+      renderDecision(disputes[idx].decision);
+    }
+
+    function renderDecision(dec) {
+      const v = dec.verification;
+      const ev = dec.ev_optimization;
+      const ce = dec.rule_report.ce30;
+      document.getElementById('decisionSummary').innerHTML = `
+        <table>
+          <tr><th>Dispute / Txn ID</th><td><code>${dec.dispute_id}</code> / <code>${dec.txn_id}</code> (Reason <code>${dec.reason_code}</code>)</td></tr>
+          <tr><th>Cryptographic Integrity</th><td><span class="badge ${v.valid ? 'ok' : 'err'}">${v.valid ? 'VERIFIED' : 'TAMPER DETECTED'}</span> ${v.reason}</td></tr>
+          <tr><th>Merkle Root (SHA-256)</th><td><code>${v.claimed_merkle_root}</code></td></tr>
+          <tr><th>Arbiter Classification</th><td><code>${dec.classification}</code></td></tr>
+          <tr><th>Visa CE 3.0 Status</th><td>Qualified: <strong>${ce.qualified}</strong> (Matches: <code>${(ce.qualifying_txn_ids || []).join(', ') || 'None'}</code>)</td></tr>
+          <tr><th>Calibrated Win Prob P(win)</th><td><strong>${(ev.win_probability * 100).toFixed(2)}%</strong></td></tr>
+          <tr><th>Expected Net Recovery E[Net]</th><td><strong>₹${ev.expected_net_recovery_inr.toLocaleString()}</strong> (Amount: ₹${ev.amount_inr.toLocaleString()})</td></tr>
+          <tr><th>Recommended Action</th><td><span class="badge ${dec.recommended_action === 'FIGHT_REPRESENTMENT' ? 'ok' : 'warn'}">${dec.recommended_action}</span></td></tr>
+        </table>
+      `;
+      document.getElementById('briefMarkdown').textContent = dec.representment_brief.markdown_brief;
+    }
+
+    async function evaluateSelected(tamperType) {
+      const item = JSON.parse(JSON.stringify(disputes[selectedIndex]));
+      if (tamperType === 'ip') {
+        item.packet.checkout_auth.ip_address = '203.0.113.99';
+      } else if (tamperType === 'otp') {
+        item.packet.delivery_proof.otp_verified_handoff = !item.packet.delivery_proof.otp_verified_handoff;
+      } else if (tamperType === '3ds') {
+        item.packet.checkout_auth.three_ds_status = item.packet.checkout_auth.three_ds_status === 'Y' ? 'N' : 'Y';
+      }
+      const res = await fetch('/disputes/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          claim: item.claim,
+          packet: item.packet,
+          historical_ledger: item.historical_ledger
+        })
+      });
+      const dec = await res.json();
+      renderDecision(dec);
+    }
+
+    async function runBench() {
+      const card = document.getElementById('benchCard');
+      const out = document.getElementById('benchOutput');
+      card.style.display = 'block';
+      out.innerHTML = 'Running 300-dispute synthetic evaluation...';
+      const res = await fetch('/bench');
+      const b = await res.json();
+      const rows = Object.values(b.strategies).map(s => `
+        <tr>
+          <td><code>${s.strategy_name}</code></td>
+          <td>${s.disputes_fought}</td>
+          <td>${s.disputes_written_off}</td>
+          <td>${s.disputes_auto_refunded}</td>
+          <td>${s.forged_packets_submitted}</td>
+          <td><strong>₹${s.total_net_recovery_inr.toLocaleString()}</strong></td>
+        </tr>
+      `).join('');
+      out.innerHTML = `
+        <p>
+          <strong>Tamper Detection Rate:</strong> ${(b.tamper_detection_rate * 100).toFixed(1)}% (${b.tampered_detected}/${b.tampered_total}) &nbsp;|&nbsp;
+          <strong>Visa CE 3.0 Catch Rate:</strong> ${(b.ce30_friendly_fraud_catch_rate * 100).toFixed(1)}% (${b.ce30_caught}/${b.ce30_total}) &nbsp;|&nbsp;
+          <strong>Classification Accuracy:</strong> ${(b.classification_accuracy * 100).toFixed(1)}%
+        </p>
+        <table>
+          <thead>
+            <tr><th>Strategy</th><th>Fought</th><th>Write-Off</th><th>Auto-Refund</th><th>Forged Submitted</th><th>Total Net Recovery (INR)</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    loadDisputes();
+  </script>
+</body>
+</html>
