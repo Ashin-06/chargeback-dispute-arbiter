@@ -12,6 +12,10 @@ Compares 4 strategies:
   - `naive_fight_all`: Fights all 300 disputes unconditionally
   - `naive_amount_threshold_5000`: Fights iff disputed amount >= ₹5,000
   - `unverified_evidence`: Uses EV optimizer on raw JSON fields without verifying Ed25519/Merkle proofs
+
+Caveat: the cases are generated to match the arbiter's own rules, and a fought dispute is scored
+with the arbiter's own estimated P(win). The arbiter therefore wins this benchmark by construction;
+the numbers show the bookkeeping works, not that it would recover more money on real disputes.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 from disputearb.arbiter import (
@@ -45,7 +49,6 @@ from disputearb.receipts import (
     hash_leaf,
 )
 from disputearb.rules import (
-    REASON_CODE_CATALOG,
     SECONDS_PER_DAY,
     HistoricalTransaction,
     evaluate_reason_code_rules,
@@ -499,10 +502,10 @@ def _ground_truth_fight_payoff(case: SyntheticDisputeCase, decision: Arbitration
     Compute the expected net ₹ recovery when a strategy chooses to FIGHT_REPRESENTMENT
     on `case`:
       - For valid `first_party_friendly_fraud`: card network accepts the valid cryptographic
-        evidence with the calibrated win probability P(win), yielding:
+        evidence with the arbiter's estimated win probability P(win), yielding:
             P(win) * Amount - (1 - P(win)) * ArbFee - FilingFee
       - For `true_third_party_fraud` or `merchant_fulfillment_fault`: fighting with weak/faulty
-        evidence has the low calibrated P(win) (4%-6%), losing arbitration + filing fees almost always.
+        evidence has the low estimated P(win) (4%-6%), losing arbitration + filing fees almost always.
       - For `tampered_evidence_rejected`: card network / issuer forensic audit rejects forged
         receipts with 0% win probability AND assesses full arbitration + filing fees
         plus a network compliance penalty (₹1,500) for altered representment records.
@@ -636,7 +639,7 @@ def run_benchmark(num_cases: int = 300, seed: int = 20261014) -> Dict[str, Any]:
                 strat_stats["cryptographic_ev_arbiter"]["forged_submitted"] += 1
         elif act == "AUTO_REFUND_PRE_DISPUTE":
             strat_stats["cryptographic_ev_arbiter"]["auto_refund"] += 1
-            # Pre-dispute auto-refund avoids chargeback governance degradation and saves ₹150 network dispute fee
+            # Assumed: a pre-dispute refund saves a ₹150 network dispute fee (illustrative figure)
             strat_stats["cryptographic_ev_arbiter"]["net_inr"] += 150.0
         else:
             strat_stats["cryptographic_ev_arbiter"]["write_off"] += 1

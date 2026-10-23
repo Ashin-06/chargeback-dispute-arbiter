@@ -14,7 +14,6 @@ from disputearb.api import app
 from disputearb.arbiter import (
     CLASS_FRIENDLY_FRAUD,
     CLASS_MERCHANT_FAULT,
-    CLASS_TAMPERED_REJECTED,
     CLASS_TRUE_FRAUD,
     ChargebackArbiter,
     DisputeClaim,
@@ -42,7 +41,6 @@ from disputearb.receipts import (
 from disputearb.rules import (
     SECONDS_PER_DAY,
     HistoricalTransaction,
-    evaluate_reason_code_rules,
     evaluate_visa_ce30,
 )
 

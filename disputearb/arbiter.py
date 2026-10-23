@@ -235,7 +235,7 @@ def compile_representment_brief(
         f"- **Disputed Amount:** ₹{claim.amount_inr:,.2f}",
         f"- **Arbiter Classification:** `{classification}`",
         f"- **Recommended Action:** `{ev_opt.recommended_action}`",
-        f"- **Calibrated Win Probability $P(\\text{{win}})$:** `{ev_opt.win_probability:.2%}`",
+        f"- **Estimated Win Probability $P(\\text{{win}})$ (rule weights, not calibrated):** `{ev_opt.win_probability:.2%}`",
         f"- **Expected Net Recovery $\\mathbb{{E}}[\\text{{Net}}]$:** `₹{ev_opt.expected_net_recovery_inr:,.2f}` "
         f"(Arbitration Fee: ₹{ev_opt.network_arbitration_fee_inr:,.0f}, Filing Fee: ₹{ev_opt.representment_filing_fee_inr:,.0f})",
         "",

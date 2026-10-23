@@ -1,8 +1,8 @@
 """
 Expected-Value (EV) Representment Optimizer.
 
-Computes calibrated representment win probability P(win | evidence, reason_code)
-and Expected Net Recovery:
+Estimates representment win probability P(win | evidence, reason_code) from hand-set rule
+weights (no outcome data was used to calibrate them) and Expected Net Recovery:
     E[Net] = P(win) * Amount - (1 - P(win)) * NetworkArbitrationFee - RepresentmentFilingFee
 
 Recommends one of:
@@ -13,7 +13,7 @@ Recommends one of:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from disputearb.receipts import VerificationResult
@@ -72,7 +72,9 @@ def compute_win_probability(
     verification: VerificationResult,
 ) -> float:
     """
-    Calibrate representment win probability P(win | evidence, reason_code).
+    Estimate representment win probability P(win | evidence, reason_code) from fixed weights.
+    The weights are judgement calls, not fitted to dispute outcomes; replace them with
+    win rates measured on your own representment history before trusting the EV numbers.
     If cryptographic verification fails, win probability is 0.0 because altered/forged
     evidence is rejected before submission.
     """
@@ -124,7 +126,7 @@ def optimize_representment_decision(
     representment_filing_fee_inr: Optional[float] = None,
 ) -> EVOptimizationResult:
     """
-    Compute calibrated win probability, expected net recovery in INR, break-even threshold,
+    Compute estimated win probability, expected net recovery in INR, break-even threshold,
     and optimal decision (`FIGHT_REPRESENTMENT`, `ACCEPT_WRITE_OFF`, or `AUTO_REFUND_PRE_DISPUTE`).
     """
     arb_fee = (
