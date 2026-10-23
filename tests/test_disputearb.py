@@ -424,3 +424,21 @@ def test_from_dict_rejects_strings_for_booleans_and_nan_amounts():
         HistoricalTransaction.from_dict(hist)  # bool("false") would have been True
     with pytest.raises(ValueError):
         DisputeClaim.from_dict({"dispute_id": "D", "txn_id": "T", "reason_code": "10.4", "amount_inr": "nan"})
+
+
+def test_api_key_and_limits(monkeypatch):
+    import disputearb.api as api
+
+    client = TestClient(app)
+    monkeypatch.setattr(api, "API_KEY", "s3cret")
+    assert client.get("/disputes").status_code == 401
+    assert client.get("/bench").status_code == 401
+    hdr = {"X-API-Key": "s3cret"}
+    assert client.get("/disputes", headers=hdr).status_code == 200
+    assert client.get("/bench?num_cases=10000000", headers=hdr).status_code == 422
+
+    sample = api._DISPUTE_STORE[0]
+    body = {"claim": sample["claim"], "packet": sample["packet"]}
+    for _ in range(api.MAX_STORED_DISPUTES + 5):
+        assert client.post("/disputes/evaluate", json=body, headers=hdr).status_code == 200
+    assert len(api._DISPUTE_STORE) == api.MAX_STORED_DISPUTES

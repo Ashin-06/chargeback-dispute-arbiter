@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 import uvicorn
@@ -23,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
 
     bench_p = sub.add_parser("bench", help="Run the 300-dispute synthetic evaluation benchmark")
-    bench_p.add_argument("--cases", type=int, default=300, help="Number of synthetic disputes (default: 300)")
+    bench_p.add_argument("--cases", type=int, default=300, help="Number of synthetic disputes, 10-100000 (default: 300)")
     bench_p.add_argument("--json", action="store_true", help="Print raw JSON output")
 
     serve_p = sub.add_parser("serve", help="Start the FastAPI server and interactive console")
@@ -31,7 +32,13 @@ def main(argv: list[str] | None = None) -> int:
     serve_p.add_argument("--port", type=int, default=8014, help="Port number (default: 8014)")
 
     args = parser.parse_args(argv)
+    if not 10 <= getattr(args, "cases", 300) <= 100_000:
+        parser.error("--cases must be between 10 and 100000")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if args.command == "serve":
+        if args.host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get("DISPUTEARB_API_KEY"):
+            print("Refusing to listen on a non-loopback address without DISPUTEARB_API_KEY set.", file=sys.stderr)
+            return 2
         uvicorn.run("disputearb.api:app", host=args.host, port=args.port, log_level="info")
         return 0
 

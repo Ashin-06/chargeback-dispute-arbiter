@@ -113,6 +113,8 @@
       <div class="subtitle">Ed25519 Signed Receipts • SHA-256 Merkle Inclusion Proofs • Visa CE 3.0 • Expected-Value Representment</div>
     </div>
     <div>
+      <input type="password" id="apiKey" placeholder="X-API-Key (if set)" autocomplete="off" />
+      <button onclick="loadDisputes()">Reload</button>
       <button onclick="runBench()">Run 300-Dispute Benchmark</button>
     </div>
   </header>
@@ -153,9 +155,21 @@
     let disputes = [];
     let selectedIndex = 0;
 
+    function esc(v) {
+      return String(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function api(path, opts = {}) {
+      const key = document.getElementById('apiKey').value;
+      const headers = { ...(opts.headers || {}) };
+      if (key) headers['X-API-Key'] = key;
+      return fetch(path, { ...opts, headers });
+    }
+
     async function loadDisputes() {
-      const res = await fetch('/disputes');
+      const res = await api('/disputes');
       const data = await res.json();
+      if (!res.ok) { document.getElementById('decisionSummary').textContent = 'Error: ' + JSON.stringify(data.detail); return; }
       disputes = data.disputes || [];
       const list = document.getElementById('disputeList');
       list.innerHTML = disputes.map((d, idx) => {
@@ -166,14 +180,14 @@
         return `
           <div class="dispute-item" onclick="selectDispute(${idx})">
             <div style="display:flex; justify-content:space-between;">
-              <strong>${d.claim.dispute_id} (${d.claim.reason_code})</strong>
+              <strong>${esc(d.claim.dispute_id)} (${esc(d.claim.reason_code)})</strong>
               ${validBadge}
             </div>
             <div style="font-size:0.8rem; color:#95a5cd; margin-top:4px;">
-              ₹${d.claim.amount_inr.toLocaleString()} • ${dec.classification}
+              ₹${d.claim.amount_inr.toLocaleString()} • ${esc(dec.classification)}
             </div>
             <div style="font-size:0.78rem; margin-top:4px;">
-              Action: <code>${dec.recommended_action}</code> | E[Net]: ₹${dec.ev_optimization.expected_net_recovery_inr}
+              Action: <code>${esc(dec.recommended_action)}</code> | E[Net]: ₹${dec.ev_optimization.expected_net_recovery_inr}
             </div>
           </div>
         `;
@@ -192,14 +206,14 @@
       const ce = dec.rule_report.ce30;
       document.getElementById('decisionSummary').innerHTML = `
         <table>
-          <tr><th>Dispute / Txn ID</th><td><code>${dec.dispute_id}</code> / <code>${dec.txn_id}</code> (Reason <code>${dec.reason_code}</code>)</td></tr>
-          <tr><th>Cryptographic Integrity</th><td><span class="badge ${v.valid ? 'ok' : 'err'}">${v.valid ? 'VERIFIED' : 'TAMPER DETECTED'}</span> ${v.reason}</td></tr>
-          <tr><th>Merkle Root (SHA-256)</th><td><code>${v.claimed_merkle_root}</code></td></tr>
-          <tr><th>Arbiter Classification</th><td><code>${dec.classification}</code></td></tr>
-          <tr><th>Visa CE 3.0 Status</th><td>Qualified: <strong>${ce.qualified}</strong> (Matches: <code>${(ce.qualifying_txn_ids || []).join(', ') || 'None'}</code>)</td></tr>
-          <tr><th>Calibrated Win Prob P(win)</th><td><strong>${(ev.win_probability * 100).toFixed(2)}%</strong></td></tr>
+          <tr><th>Dispute / Txn ID</th><td><code>${esc(dec.dispute_id)}</code> / <code>${esc(dec.txn_id)}</code> (Reason <code>${esc(dec.reason_code)}</code>)</td></tr>
+          <tr><th>Cryptographic Integrity</th><td><span class="badge ${v.valid ? 'ok' : 'err'}">${v.valid ? 'VERIFIED' : 'TAMPER DETECTED'}</span> ${esc(v.reason)}</td></tr>
+          <tr><th>Merkle Root (SHA-256)</th><td><code>${esc(v.claimed_merkle_root)}</code></td></tr>
+          <tr><th>Arbiter Classification</th><td><code>${esc(dec.classification)}</code></td></tr>
+          <tr><th>Visa CE 3.0 Status</th><td>Qualified: <strong>${ce.qualified}</strong> (Matches: <code>${esc((ce.qualifying_txn_ids || []).join(', ') || 'None')}</code>)</td></tr>
+          <tr><th>Rule-based Win Prob P(win)</th><td><strong>${(ev.win_probability * 100).toFixed(2)}%</strong></td></tr>
           <tr><th>Expected Net Recovery E[Net]</th><td><strong>₹${ev.expected_net_recovery_inr.toLocaleString()}</strong> (Amount: ₹${ev.amount_inr.toLocaleString()})</td></tr>
-          <tr><th>Recommended Action</th><td><span class="badge ${dec.recommended_action === 'FIGHT_REPRESENTMENT' ? 'ok' : 'warn'}">${dec.recommended_action}</span></td></tr>
+          <tr><th>Recommended Action</th><td><span class="badge ${dec.recommended_action === 'FIGHT_REPRESENTMENT' ? 'ok' : 'warn'}">${esc(dec.recommended_action)}</span></td></tr>
         </table>
       `;
       document.getElementById('briefMarkdown').textContent = dec.representment_brief.markdown_brief;
@@ -214,7 +228,7 @@
       } else if (tamperType === '3ds') {
         item.packet.checkout_auth.three_ds_status = item.packet.checkout_auth.three_ds_status === 'Y' ? 'N' : 'Y';
       }
-      const res = await fetch('/disputes/evaluate', {
+      const res = await api('/disputes/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -224,6 +238,7 @@
         })
       });
       const dec = await res.json();
+      if (!res.ok) { document.getElementById('decisionSummary').textContent = 'Error: ' + JSON.stringify(dec.detail); return; }
       renderDecision(dec);
     }
 
@@ -232,11 +247,12 @@
       const out = document.getElementById('benchOutput');
       card.style.display = 'block';
       out.innerHTML = 'Running 300-dispute synthetic evaluation...';
-      const res = await fetch('/bench');
+      const res = await api('/bench');
       const b = await res.json();
+      if (!res.ok) { out.textContent = 'Error: ' + JSON.stringify(b.detail); return; }
       const rows = Object.values(b.strategies).map(s => `
         <tr>
-          <td><code>${s.strategy_name}</code></td>
+          <td><code>${esc(s.strategy_name)}</code></td>
           <td>${s.disputes_fought}</td>
           <td>${s.disputes_written_off}</td>
           <td>${s.disputes_auto_refunded}</td>
