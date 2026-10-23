@@ -394,3 +394,22 @@ def test_resigned_forgery_fails_against_the_pinned_merchant_key():
     body = {"claim": sample["claim"], "packet": forged_api.to_dict(),
             "trusted_public_key_hex": attacker.public_key_hex}
     assert client.post("/disputes/evaluate", json=body).json()["verification"]["valid"] is False
+
+
+def test_ce30_needs_ip_or_device_among_the_matches():
+    packet, _ = _make_sample_packet()
+    ts = packet.checkout_auth.timestamp
+    # Account and shipping address match, but IP and device differ: not CE 3.0
+    ledger = [
+        HistoricalTransaction(
+            txn_id=f"HIST-ACCT-{k}",
+            account_id=packet.checkout_auth.account_id,
+            ip_address=f"10.0.0.{k}",
+            device_id=f"OTHER-DEVICE-{k}",
+            shipping_address_hash=packet.checkout_auth.shipping_address_hash,
+            amount_inr=1000.0,
+            timestamp=int(ts - (150 + k * 50) * SECONDS_PER_DAY),
+        )
+        for k in range(2)
+    ]
+    assert evaluate_visa_ce30(packet, ledger).qualified is False

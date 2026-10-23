@@ -24,6 +24,8 @@ SECONDS_PER_DAY = 86400.0
 CE30_MIN_AGE_DAYS = 120.0
 CE30_MAX_AGE_DAYS = 365.0
 CE30_CORE_ELEMENTS = ("ip_address", "device_id", "shipping_address_hash", "account_id")
+# CE 3.0 needs two matching elements, at least one of them the IP address or the device ID
+CE30_REQUIRED_ONE_OF = ("ip_address", "device_id")
 
 
 @dataclass
@@ -222,8 +224,11 @@ def evaluate_visa_ce30(
     Evaluate Visa Compelling Evidence 3.0 (CE 3.0) footprint:
     Checks whether the customer has >= 2 prior undisputed transactions aged 120-365 days
     before the disputed transaction that share >= 2 core elements
-    (`ip_address`, `device_id`, `shipping_address_hash`, `account_id`)
-    with the disputed transaction.
+    (`ip_address`, `device_id`, `shipping_address_hash`, `account_id`) with the disputed
+    transaction, at least one of which is the IP address or the device ID.
+
+    The ledger is assumed to hold transactions on the same card. Ages are measured from the
+    disputed transaction's timestamp.
     """
     auth = packet.checkout_auth
     disputed_ts = auth.timestamp
@@ -259,7 +264,7 @@ def evaluate_visa_ce30(
             if val_now and val_prev and val_now == val_prev:
                 matched.append(elem_name)
 
-        if len(matched) >= 2:
+        if len(matched) >= 2 and any(e in matched for e in CE30_REQUIRED_ONE_OF):
             qualifying_matches.append(
                 CE30MatchDetail(
                     txn_id=prior.txn_id,
@@ -277,12 +282,13 @@ def evaluate_visa_ce30(
         summary = (
             f"Visa CE 3.0 QUALIFIED: {len(qualifying_matches)} undisputed historical "
             f"transactions ({', '.join(qualifying_ids[:4])}) aged 120-365 days match "
-            f">=2 core elements ({', '.join(sorted_union)})."
+            f">=2 core elements incl. IP or device ({', '.join(sorted_union)})."
         )
     else:
         summary = (
             f"Visa CE 3.0 NOT QUALIFIED: found {len(qualifying_matches)} qualifying prior "
-            "transactions (minimum 2 required aged 120-365 days with >=2 shared core elements)."
+            "transactions (minimum 2 required aged 120-365 days with >=2 shared core elements, "
+            "one of them IP address or device ID)."
         )
 
     return CE30QualificationResult(
@@ -376,7 +382,14 @@ def evaluate_reason_code_rules(
     findings: List[str] = []
 
     if ce30.qualified:
-        findings.append(ce30.summary)
+        if reason_code == "10.4":
+            findings.append(ce30.summary)
+        else:
+            # CE 3.0 is a Visa 10.4 rule; elsewhere the same footprint is only supporting evidence
+            findings.append(
+                f"Prior-transaction footprint matches the CE 3.0 pattern ({', '.join(ce30.qualifying_txn_ids[:4])}); "
+                f"CE 3.0 itself is not a {spec.network} rule for reason code {reason_code}."
+            )
     if liability_shift_eci05:
         findings.append(
             f"3DS2 Full Authentication (status=Y, ECI=05, CAVV={auth.cavv[:10]}...) establishes issuer liability shift."
