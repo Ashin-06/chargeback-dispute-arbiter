@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from disputearb.receipts import EvidencePacket
+from disputearb.receipts import EvidencePacket, as_amount, as_bool
 
 SECONDS_PER_DAY = 86400.0
 CE30_MIN_AGE_DAYS = 120.0
@@ -177,9 +177,9 @@ class HistoricalTransaction:
             ip_address=str(data["ip_address"]),
             device_id=str(data["device_id"]),
             shipping_address_hash=str(data["shipping_address_hash"]),
-            amount_inr=float(data.get("amount_inr", 0.0)),
+            amount_inr=as_amount(data.get("amount_inr", 0.0)),
             timestamp=int(data["timestamp"]),
-            disputed=bool(data.get("disputed", False)),
+            disputed=as_bool(data.get("disputed", False)),
             three_ds_status=str(data.get("three_ds_status", "Y")),
         )
 

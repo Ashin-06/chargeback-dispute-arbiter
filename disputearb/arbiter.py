@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
 from disputearb.optimizer import EVOptimizationResult, optimize_representment_decision
-from disputearb.receipts import EvidencePacket, VerificationResult, verify_evidence_packet
+from disputearb.receipts import EvidencePacket, VerificationResult, as_amount, verify_evidence_packet
 from disputearb.rules import (
     HistoricalTransaction,
     RuleEvaluationReport,
@@ -53,15 +53,15 @@ class DisputeClaim:
             dispute_id=str(data["dispute_id"]),
             txn_id=str(data["txn_id"]),
             reason_code=str(data["reason_code"]),
-            amount_inr=float(data["amount_inr"]),
+            amount_inr=as_amount(data["amount_inr"]),
             cardholder_statement=str(data.get("cardholder_statement", "")),
             network_arbitration_fee_inr=(
-                float(data["network_arbitration_fee_inr"])
+                as_amount(data["network_arbitration_fee_inr"])
                 if data.get("network_arbitration_fee_inr") is not None
                 else None
             ),
             representment_filing_fee_inr=(
-                float(data["representment_filing_fee_inr"])
+                as_amount(data["representment_filing_fee_inr"])
                 if data.get("representment_filing_fee_inr") is not None
                 else None
             ),

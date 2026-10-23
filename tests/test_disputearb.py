@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from disputearb.api import app
@@ -413,3 +415,12 @@ def test_ce30_needs_ip_or_device_among_the_matches():
         for k in range(2)
     ]
     assert evaluate_visa_ce30(packet, ledger).qualified is False
+
+
+def test_from_dict_rejects_strings_for_booleans_and_nan_amounts():
+    hist = {"txn_id": "H", "account_id": "A", "ip_address": "1.2.3.4", "device_id": "D",
+            "shipping_address_hash": "S", "timestamp": 1, "disputed": "false"}
+    with pytest.raises(ValueError):
+        HistoricalTransaction.from_dict(hist)  # bool("false") would have been True
+    with pytest.raises(ValueError):
+        DisputeClaim.from_dict({"dispute_id": "D", "txn_id": "T", "reason_code": "10.4", "amount_inr": "nan"})

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +27,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 LEAF_ORDER = ("checkout_auth", "delivery_proof", "post_purchase_usage")
+
+
+def as_bool(value: Any) -> bool:
+    """Strict JSON boolean: bool("false") is True, so strings must not be coerced."""
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"expected a JSON boolean, got {value!r}")
+
+
+def as_amount(value: Any) -> float:
+    """A finite, non-negative amount; float() alone accepts "nan" and "inf"."""
+    amount = float(value)
+    if not math.isfinite(amount) or amount < 0:
+        raise ValueError(f"amount must be a finite non-negative number, got {value!r}")
+    return amount
 
 
 def canonical_json_bytes(obj: Any) -> bytes:
@@ -77,18 +93,18 @@ class CheckoutAuthLeaf:
         return cls(
             txn_id=str(data["txn_id"]),
             account_id=str(data["account_id"]),
-            amount_inr=float(data["amount_inr"]),
+            amount_inr=as_amount(data["amount_inr"]),
             three_ds_status=str(data["three_ds_status"]),
             eci=str(data["eci"]),
             cavv=str(data.get("cavv", "")),
             device_id=str(data["device_id"]),
             ip_address=str(data["ip_address"]),
-            avs_cvv_match=bool(data["avs_cvv_match"]),
+            avs_cvv_match=as_bool(data["avs_cvv_match"]),
             shipping_address_hash=str(data.get("shipping_address_hash", "")),
             timestamp=int(data["timestamp"]),
-            credit_refund_processed=bool(data.get("credit_refund_processed", False)),
+            credit_refund_processed=as_bool(data.get("credit_refund_processed", False)),
             credit_arn=data.get("credit_arn"),
-            cancelled_before_billing=bool(data.get("cancelled_before_billing", False)),
+            cancelled_before_billing=as_bool(data.get("cancelled_before_billing", False)),
         )
 
 
@@ -107,12 +123,12 @@ class DeliveryProofLeaf:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DeliveryProofLeaf":
         return cls(
-            delivered=bool(data["delivered"]),
+            delivered=as_bool(data["delivered"]),
             carrier_signed_gps=str(data.get("carrier_signed_gps", "")),
-            otp_verified_handoff=bool(data["otp_verified_handoff"]),
+            otp_verified_handoff=as_bool(data["otp_verified_handoff"]),
             recipient_signature_hash=str(data.get("recipient_signature_hash", "")),
             delivery_timestamp=int(data.get("delivery_timestamp", 0)),
-            as_described_qc_passed=bool(data.get("as_described_qc_passed", True)),
+            as_described_qc_passed=as_bool(data.get("as_described_qc_passed", True)),
         )
 
 
