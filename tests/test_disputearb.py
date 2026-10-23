@@ -27,6 +27,7 @@ from disputearb.optimizer import (
 from disputearb.receipts import (
     CheckoutAuthLeaf,
     DeliveryProofLeaf,
+    EvidencePacket,
     MerchantSigner,
     PostPurchaseUsageLeaf,
     UsageEvent,
@@ -369,3 +370,27 @@ def test_fastapi_endpoints():
     b_json = r_bench.json()
     assert b_json["tamper_detection_rate"] == 1.0
     assert b_json["ce30_friendly_fraud_catch_rate"] > 0.95
+
+
+def test_resigned_forgery_fails_against_the_pinned_merchant_key():
+    packet, signer = _make_sample_packet()
+    attacker = MerchantSigner.generate_random()
+    forged = compile_evidence_packet(
+        packet.checkout_auth, packet.delivery_proof, packet.post_purchase_usage, signer=attacker
+    )
+    # Internally consistent and carries the attacker's key, but the verifier ignores that key
+    assert verify_evidence_packet(forged, trusted_public_key_hex=attacker.public_key_hex).valid is True
+    assert verify_evidence_packet(forged, trusted_public_key_hex=signer.public_key_hex).valid is False
+
+    import disputearb.api as api
+    sample = api._DISPUTE_STORE[1]
+    forged_api = compile_evidence_packet(
+        EvidencePacket.from_dict(sample["packet"]).checkout_auth,
+        EvidencePacket.from_dict(sample["packet"]).delivery_proof,
+        EvidencePacket.from_dict(sample["packet"]).post_purchase_usage,
+        signer=attacker,
+    )
+    client = TestClient(app)
+    body = {"claim": sample["claim"], "packet": forged_api.to_dict(),
+            "trusted_public_key_hex": attacker.public_key_hex}
+    assert client.post("/disputes/evaluate", json=body).json()["verification"]["valid"] is False

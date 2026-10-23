@@ -208,17 +208,19 @@ class MerchantSigner:
     """Ed25519 keypair manager for signing and verifying EvidencePackets."""
 
     def __init__(self, private_key: Optional[Ed25519PrivateKey] = None) -> None:
-        if private_key is None:
-            # Deterministic default seed for reproducible tests/benchmarks if not provided
-            seed = hashlib.sha256(b"disputearb-merchant-ed25519-master-seed-v1").digest()
-            self._private_key = Ed25519PrivateKey.from_private_bytes(seed)
-        else:
-            self._private_key = private_key
+        # A fresh random key unless one is supplied. Never derive keys from a seed in the code:
+        # anyone reading it could sign "evidence" as the merchant.
+        self._private_key = private_key if private_key is not None else Ed25519PrivateKey.generate()
         self._public_key = self._private_key.public_key()
 
     @classmethod
     def generate_random(cls) -> "MerchantSigner":
         return cls(Ed25519PrivateKey.generate())
+
+    @classmethod
+    def from_seed_hex(cls, seed_hex: str) -> "MerchantSigner":
+        """Load a 32-byte Ed25519 private seed given as 64 hex characters (e.g. from a secret store)."""
+        return cls(Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed_hex)))
 
     @property
     def public_key_hex(self) -> str:
@@ -298,11 +300,9 @@ def compile_evidence_packet(
     checkout_auth: CheckoutAuthLeaf,
     delivery_proof: DeliveryProofLeaf,
     post_purchase_usage: PostPurchaseUsageLeaf,
-    signer: Optional[MerchantSigner] = None,
+    signer: MerchantSigner,
 ) -> EvidencePacket:
     """Compile a cryptographically signed EvidencePacket with SHA-256 Merkle proofs."""
-    if signer is None:
-        signer = MerchantSigner()
 
     leaf_hashes = {
         "checkout_auth": hash_leaf("checkout_auth", checkout_auth.to_dict()),
@@ -327,12 +327,15 @@ def compile_evidence_packet(
 
 def verify_evidence_packet(
     packet: EvidencePacket,
-    trusted_public_key_hex: Optional[str] = None,
+    trusted_public_key_hex: str,
 ) -> VerificationResult:
     """
     Verify an EvidencePacket's leaf integrity, Merkle inclusion proofs, Merkle root,
     and Ed25519 digital signature. Any mutation to payload fields, leaf hashes,
     Merkle root, or signature is caught immediately.
+
+    `trusted_public_key_hex` is the merchant key the verifier already holds. The packet's own
+    `public_key_hex` is never trusted: anyone can re-sign altered evidence with a key of their own.
     """
     recomputed_leaves = {
         "checkout_auth": hash_leaf("checkout_auth", packet.checkout_auth.to_dict()),
@@ -364,7 +367,7 @@ def verify_evidence_packet(
         merkle_valid = False
 
     # Verify Ed25519 signature over (txn_id, claimed_merkle_root) AND check txn_id consistency
-    pub_hex = trusted_public_key_hex if trusted_public_key_hex is not None else packet.public_key_hex
+    pub_hex = trusted_public_key_hex
     signature_valid = False
     if packet.txn_id != packet.checkout_auth.txn_id:
         if "checkout_auth" not in tampered_leaves:
@@ -382,7 +385,7 @@ def verify_evidence_packet(
             signature_valid = True
         else:
             signature_valid = False
-    except (ValueError, InvalidSignature):
+    except (TypeError, ValueError, InvalidSignature):
         signature_valid = False
 
     valid = merkle_valid and signature_valid and inclusion_proofs_valid and (len(tampered_leaves) == 0)

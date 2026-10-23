@@ -82,13 +82,15 @@ def _sha_short(label: str) -> str:
 def generate_synthetic_disputes(
     num_cases: int = 300,
     seed: int = 20261014,
+    signer: MerchantSigner | None = None,
 ) -> Tuple[List[SyntheticDisputeCase], MerchantSigner]:
     """
     Deterministically generate 300 synthetic disputes spanning all 4 categories
-    and all 9 card-network / UPI reason codes.
+    and all 9 card-network / UPI reason codes. The case data depends only on `seed`;
+    signatures use `signer`, or a fresh random key.
     """
     rng = random.Random(seed)
-    signer = MerchantSigner()
+    signer = signer or MerchantSigner()
     base_ts = 1_725_000_000
 
     # Category counts for 300 cases (scaled proportionally if num_cases != 300)

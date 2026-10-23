@@ -8,10 +8,14 @@ Endpoints:
   - POST /receipts/verify    : Verify Ed25519 signature & SHA-256 Merkle proofs of an EvidencePacket
   - GET  /disputes           : List sample & evaluated disputes across all 4 categories
   - GET  /bench              : Run the 300-dispute synthetic benchmark
+
+Evidence is checked against this server's merchant key only: DISPUTEARB_SIGNING_KEY (64 hex
+characters, the Ed25519 private seed) or, if unset, a random key made at start-up.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -20,7 +24,7 @@ from fastapi.responses import HTMLResponse
 
 from disputearb.arbiter import ChargebackArbiter, DisputeClaim
 from disputearb.bench import generate_synthetic_disputes, run_benchmark
-from disputearb.receipts import EvidencePacket, verify_evidence_packet
+from disputearb.receipts import EvidencePacket, MerchantSigner, verify_evidence_packet
 from disputearb.rules import REASON_CODE_CATALOG, HistoricalTransaction
 
 app = FastAPI(
@@ -35,7 +39,12 @@ app = FastAPI(
 WEB_CONSOLE_PATH = Path(__file__).resolve().parent.parent / "web" / "console.html"
 
 # Preload representative disputes across all 4 categories for interactive exploration
-_ALL_CASES, _DEFAULT_SIGNER = generate_synthetic_disputes(num_cases=300, seed=20261014)
+_SEED_HEX = os.environ.get("DISPUTEARB_SIGNING_KEY")
+_ALL_CASES, _DEFAULT_SIGNER = generate_synthetic_disputes(
+    num_cases=300,
+    seed=20261014,
+    signer=MerchantSigner.from_seed_hex(_SEED_HEX) if _SEED_HEX else None,
+)
 _DEFAULT_ARBITER = ChargebackArbiter(trusted_public_key_hex=_DEFAULT_SIGNER.public_key_hex)
 
 
@@ -111,15 +120,13 @@ def list_disputes(limit: int = 50) -> Dict[str, Any]:
 @app.post("/receipts/verify")
 def verify_receipt_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Verify an EvidencePacket's Ed25519 signature and SHA-256 Merkle inclusion proofs.
-    Accepts either `{"packet": {...}, "trusted_public_key_hex": "..."}` or the
-    `EvidencePacket` fields directly at the top level.
+    Verify an EvidencePacket's Ed25519 signature (against this server's merchant key) and
+    SHA-256 Merkle inclusion proofs. Accepts `{"packet": {...}}` or the packet fields directly.
     """
     try:
         packet_data = payload["packet"] if "packet" in payload else payload
-        trusted_pub = payload.get("trusted_public_key_hex")
         packet = EvidencePacket.from_dict(packet_data)
-        res = verify_evidence_packet(packet, trusted_public_key_hex=trusted_pub)
+        res = verify_evidence_packet(packet, trusted_public_key_hex=_DEFAULT_SIGNER.public_key_hex)
         return res.to_dict()
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid EvidencePacket payload: {exc}") from exc
@@ -135,14 +142,13 @@ def evaluate_dispute_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
         claim_data = payload["claim"]
         packet_data = payload["packet"]
         ledger_data = payload.get("historical_ledger", [])
-        trusted_pub = payload.get("trusted_public_key_hex")
 
         claim = DisputeClaim.from_dict(claim_data)
         packet = EvidencePacket.from_dict(packet_data)
         ledger = [HistoricalTransaction.from_dict(item) for item in ledger_data]
 
-        arbiter = ChargebackArbiter(trusted_public_key_hex=trusted_pub)
-        decision = arbiter.evaluate_dispute(claim, packet, historical_ledger=ledger)
+        # Never take the trusted key from the caller: they could vouch for their own forgery
+        decision = _DEFAULT_ARBITER.evaluate_dispute(claim, packet, historical_ledger=ledger)
         out = decision.to_dict()
 
         _DISPUTE_STORE.insert(

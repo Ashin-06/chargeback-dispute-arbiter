@@ -318,7 +318,8 @@ def compile_representment_brief(
 class ChargebackArbiter:
     """End-to-end cryptographic chargeback arbiter and EV representment optimizer."""
 
-    def __init__(self, trusted_public_key_hex: Optional[str] = None) -> None:
+    def __init__(self, trusted_public_key_hex: str) -> None:
+        # The merchant key evidence must be signed with; see verify_evidence_packet
         self.trusted_public_key_hex = trusted_public_key_hex
 
     def evaluate_dispute(
