@@ -184,7 +184,7 @@
               ${validBadge}
             </div>
             <div style="font-size:0.8rem; color:#95a5cd; margin-top:4px;">
-              ₹${d.claim.amount_inr.toLocaleString()} • ${esc(dec.classification)}
+              ₹${Number(d.claim.amount_inr).toLocaleString()} • ${esc(dec.classification)}
             </div>
             <div style="font-size:0.78rem; margin-top:4px;">
               Action: <code>${esc(dec.recommended_action)}</code> | E[Net]: ₹${dec.ev_optimization.expected_net_recovery_inr}
@@ -212,7 +212,7 @@
           <tr><th>Arbiter Classification</th><td><code>${esc(dec.classification)}</code></td></tr>
           <tr><th>Visa CE 3.0 Status</th><td>Qualified: <strong>${ce.qualified}</strong> (Matches: <code>${esc((ce.qualifying_txn_ids || []).join(', ') || 'None')}</code>)</td></tr>
           <tr><th>Rule-based Win Prob P(win)</th><td><strong>${(ev.win_probability * 100).toFixed(2)}%</strong></td></tr>
-          <tr><th>Expected Net Recovery E[Net]</th><td><strong>₹${ev.expected_net_recovery_inr.toLocaleString()}</strong> (Amount: ₹${ev.amount_inr.toLocaleString()})</td></tr>
+          <tr><th>Expected Net Recovery E[Net]</th><td><strong>₹${Number(ev.expected_net_recovery_inr).toLocaleString()}</strong> (Amount: ₹${Number(ev.amount_inr).toLocaleString()})</td></tr>
           <tr><th>Recommended Action</th><td><span class="badge ${dec.recommended_action === 'FIGHT_REPRESENTMENT' ? 'ok' : 'warn'}">${esc(dec.recommended_action)}</span></td></tr>
         </table>
       `;
@@ -257,7 +257,7 @@
           <td>${s.disputes_written_off}</td>
           <td>${s.disputes_auto_refunded}</td>
           <td>${s.forged_packets_submitted}</td>
-          <td><strong>₹${s.total_net_recovery_inr.toLocaleString()}</strong></td>
+          <td><strong>₹${Number(s.total_net_recovery_inr).toLocaleString()}</strong></td>
         </tr>
       `).join('');
       out.innerHTML = `

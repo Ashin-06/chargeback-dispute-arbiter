@@ -5,6 +5,7 @@ Comprehensive Test Suite for `disputearb` (Project 14: Chargeback Dispute Arbite
 from __future__ import annotations
 
 import copy
+from decimal import Decimal
 
 import pytest
 
@@ -311,8 +312,8 @@ def test_reason_codes_arbiter_and_ev_optimizer():
     assert dec_4837.recommended_action == ACTION_WRITE_OFF
 
     # Verify exact EV math formula
-    ev_manual = compute_expected_net_recovery(10000.0, 0.90, 1200.0, 250.0)
-    assert abs(ev_manual - (0.90 * 10000.0 - 0.10 * 1200.0 - 250.0)) < 1e-6
+    ev_manual = compute_expected_net_recovery(Decimal("10000"), 0.90, Decimal("1200"), Decimal("250"))
+    assert ev_manual == Decimal("0.90") * 10000 - Decimal("0.10") * 1200 - 250  # exact: money is Decimal
 
 
 def test_300_dispute_benchmark_metrics():
@@ -321,14 +322,12 @@ def test_300_dispute_benchmark_metrics():
     assert report["tamper_detection_rate"] == 1.0
     assert report["ce30_friendly_fraud_catch_rate"] > 0.95
 
-    ours = report["strategies"]["cryptographic_ev_arbiter"]["total_net_recovery_inr"]
-    fight_all = report["strategies"]["naive_fight_all"]["total_net_recovery_inr"]
-    thresh = report["strategies"]["naive_amount_threshold_5000"]["total_net_recovery_inr"]
-    unverified = report["strategies"]["unverified_evidence"]["total_net_recovery_inr"]
+    net = {k: Decimal(v["total_net_recovery_inr"]) for k, v in report["strategies"].items()}
+    ours = net["cryptographic_ev_arbiter"]
 
-    assert ours > fight_all + 150000.0
-    assert ours > thresh + 100000.0
-    assert ours > unverified + 50000.0
+    assert ours > net["naive_fight_all"] + 150000
+    assert ours > net["naive_amount_threshold_5000"] + 100000
+    assert ours > net["unverified_evidence"] + 50000
     assert report["strategies"]["cryptographic_ev_arbiter"]["forged_packets_submitted"] == 0
 
 
@@ -345,7 +344,7 @@ def test_fastapi_endpoints():
     assert r_list.status_code == 200
     data_list = r_list.json()
     assert data_list["count"] >= 10
-    sample = data_list["disputes"][1]
+    sample = _genuine_friendly_fraud(data_list["disputes"])
 
     # 3. POST /receipts/verify
     r_ver = client.post("/receipts/verify", json={"packet": sample["packet"]})
@@ -382,8 +381,7 @@ def test_resigned_forgery_fails_against_the_pinned_merchant_key():
     assert verify_evidence_packet(forged, trusted_public_key_hex=attacker.public_key_hex).valid is True
     assert verify_evidence_packet(forged, trusted_public_key_hex=signer.public_key_hex).valid is False
 
-    import disputearb.api as api
-    sample = api._DISPUTE_STORE[1]
+    sample = _genuine_friendly_fraud(TestClient(app).get("/disputes").json()["disputes"])
     forged_api = compile_evidence_packet(
         EvidencePacket.from_dict(sample["packet"]).checkout_auth,
         EvidencePacket.from_dict(sample["packet"]).delivery_proof,
@@ -425,18 +423,29 @@ def test_from_dict_rejects_strings_for_booleans_and_nan_amounts():
 
 
 def test_api_key_and_limits(monkeypatch):
+    import importlib
+    import json
+
     import disputearb.api as api
 
-    client = TestClient(app)
-    monkeypatch.setattr(api, "API_KEY", "s3cret")
+    monkeypatch.setenv("DISPUTEARB_API_KEYS", json.dumps({"s3cret": {"user": "ops", "role": "admin"}}))
+    api = importlib.reload(api)
+    client = TestClient(api.app)
     assert client.get("/disputes").status_code == 401
     assert client.get("/bench").status_code == 401
     hdr = {"X-API-Key": "s3cret"}
     assert client.get("/disputes", headers=hdr).status_code == 200
     assert client.get("/bench?num_cases=10000000", headers=hdr).status_code == 422
 
-    sample = api._DISPUTE_STORE[0]
+    sample = client.get("/disputes", headers=hdr).json()["disputes"][0]
     body = {"claim": sample["claim"], "packet": sample["packet"]}
-    for _ in range(api.MAX_STORED_DISPUTES + 5):
+    before = api.store.count()
+    for _ in range(5):
         assert client.post("/disputes/evaluate", json=body, headers=hdr).status_code == 200
-    assert len(api._DISPUTE_STORE) == api.MAX_STORED_DISPUTES
+    assert api.store.count() == before + 5  # kept in the database, not a bounded in-memory list
+    assert len(client.get("/disputes?limit=3", headers=hdr).json()["disputes"]) == 3
+    assert client.get("/disputes?limit=5000", headers=hdr).status_code == 422
+
+
+def _genuine_friendly_fraud(disputes):
+    return next(d for d in disputes if d["tamper_mode"] == "none" and d["ground_truth_category"] == CLASS_FRIENDLY_FRAUD)

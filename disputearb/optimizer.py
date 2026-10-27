@@ -5,6 +5,8 @@ Estimates representment win probability P(win | evidence, reason_code) from hand
 weights (no outcome data was used to calibrate them) and Expected Net Recovery:
     E[Net] = P(win) * Amount - (1 - P(win)) * NetworkArbitrationFee - RepresentmentFilingFee
 
+Money is Decimal throughout (rupees, to the paisa); only the win probability is a float.
+
 Recommends one of:
   - FIGHT_REPRESENTMENT
   - ACCEPT_WRITE_OFF
@@ -14,9 +16,10 @@ Recommends one of:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from disputearb.receipts import VerificationResult
+from disputearb.receipts import PAISE, VerificationResult, as_amount
 from disputearb.rules import RuleEvaluationReport
 
 ACTION_FIGHT = "FIGHT_REPRESENTMENT"
@@ -27,42 +30,42 @@ ACTION_AUTO_REFUND = "AUTO_REFUND_PRE_DISPUTE"
 @dataclass
 class EVOptimizationResult:
     win_probability: float
-    amount_inr: float
-    network_arbitration_fee_inr: float
-    representment_filing_fee_inr: float
-    expected_net_recovery_inr: float
-    break_even_amount_inr: float
+    amount_inr: Decimal
+    network_arbitration_fee_inr: Decimal
+    representment_filing_fee_inr: Decimal
+    expected_net_recovery_inr: Decimal
+    break_even_amount_inr: Decimal
     recommended_action: str
     rationale: str
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "win_probability": round(self.win_probability, 4),
-            "amount_inr": round(self.amount_inr, 2),
-            "network_arbitration_fee_inr": round(self.network_arbitration_fee_inr, 2),
-            "representment_filing_fee_inr": round(self.representment_filing_fee_inr, 2),
-            "expected_net_recovery_inr": round(self.expected_net_recovery_inr, 2),
-            "break_even_amount_inr": round(self.break_even_amount_inr, 2),
+            "amount_inr": self.amount_inr.quantize(PAISE).to_eng_string(),
+            "network_arbitration_fee_inr": self.network_arbitration_fee_inr.quantize(PAISE).to_eng_string(),
+            "representment_filing_fee_inr": self.representment_filing_fee_inr.quantize(PAISE).to_eng_string(),
+            "expected_net_recovery_inr": self.expected_net_recovery_inr.quantize(PAISE).to_eng_string(),
+            "break_even_amount_inr": self.break_even_amount_inr.quantize(PAISE).to_eng_string(),
             "recommended_action": self.recommended_action,
             "rationale": self.rationale,
         }
 
 
 def compute_expected_net_recovery(
-    amount_inr: float,
+    amount_inr: Decimal,
     win_probability: float,
-    network_arbitration_fee_inr: float,
-    representment_filing_fee_inr: float,
-) -> float:
+    network_arbitration_fee_inr: Decimal,
+    representment_filing_fee_inr: Decimal,
+) -> Decimal:
     """
-    Compute Expected Net Recovery (INR):
+    Compute Expected Net Recovery (INR), unrounded:
         E[Net] = P(win) * Amount - (1 - P(win)) * NetworkArbitrationFee - RepresentmentFilingFee
     """
-    p = max(0.0, min(1.0, float(win_probability)))
+    p = Decimal(str(max(0.0, min(1.0, float(win_probability)))))
     return (
-        p * float(amount_inr)
-        - (1.0 - p) * float(network_arbitration_fee_inr)
-        - float(representment_filing_fee_inr)
+        p * as_amount(amount_inr)
+        - (1 - p) * as_amount(network_arbitration_fee_inr)
+        - as_amount(representment_filing_fee_inr)
     )
 
 
@@ -119,23 +122,24 @@ def compute_win_probability(
 
 def optimize_representment_decision(
     classification: str,
-    amount_inr: float,
+    amount_inr: Decimal,
     rule_report: RuleEvaluationReport,
     verification: VerificationResult,
-    network_arbitration_fee_inr: Optional[float] = None,
-    representment_filing_fee_inr: Optional[float] = None,
+    network_arbitration_fee_inr: Optional[Decimal] = None,
+    representment_filing_fee_inr: Optional[Decimal] = None,
 ) -> EVOptimizationResult:
     """
     Compute estimated win probability, expected net recovery in INR, break-even threshold,
     and optimal decision (`FIGHT_REPRESENTMENT`, `ACCEPT_WRITE_OFF`, or `AUTO_REFUND_PRE_DISPUTE`).
     """
-    arb_fee = (
-        float(network_arbitration_fee_inr)
+    amount_inr = as_amount(amount_inr)
+    arb_fee = as_amount(
+        network_arbitration_fee_inr
         if network_arbitration_fee_inr is not None
         else rule_report.spec.default_arbitration_fee_inr
     )
-    filing_fee = (
-        float(representment_filing_fee_inr)
+    filing_fee = as_amount(
+        representment_filing_fee_inr
         if representment_filing_fee_inr is not None
         else rule_report.spec.default_filing_fee_inr
     )
@@ -143,10 +147,8 @@ def optimize_representment_decision(
     p_win = compute_win_probability(classification, rule_report, verification)
     expected_net = compute_expected_net_recovery(amount_inr, p_win, arb_fee, filing_fee)
 
-    if p_win > 0.0:
-        break_even = ((1.0 - p_win) * arb_fee + filing_fee) / p_win
-    else:
-        break_even = float("inf")
+    p = Decimal(str(p_win))
+    break_even = ((1 - p) * arb_fee + filing_fee) / p if p > 0 else None
 
     if not verification.valid or classification == "tampered_evidence_rejected":
         action = ACTION_WRITE_OFF
@@ -161,18 +163,18 @@ def optimize_representment_decision(
             f"E[Net]=₹{expected_net:.2f}). Issue immediate pre-dispute auto-refund to avoid "
             f"₹{arb_fee:.0f} arbitration penalty."
         )
-    elif expected_net > 0.0:
+    elif expected_net > 0:
         action = ACTION_FIGHT
         rationale = (
             f"Positive expected net recovery E[Net]=₹{expected_net:.2f} "
-            f"(P(win)={p_win:.1%}, Amount=₹{amount_inr:.2f} > Break-Even=₹{break_even:.2f}). "
+            f"(P(win)={p_win:.1%}, Amount=₹{amount_inr:.2f} > Break-Even=₹{break_even or 0:.2f}). "
             "Submit cryptographic representment brief."
         )
     else:
         action = ACTION_WRITE_OFF
         rationale = (
             f"Negative expected net recovery E[Net]=₹{expected_net:.2f} "
-            f"(P(win)={p_win:.1%}, Amount=₹{amount_inr:.2f} <= Break-Even=₹{break_even:.2f}). "
+            f"(P(win)={p_win:.1%}, Amount=₹{amount_inr:.2f} <= Break-Even=₹{'inf' if break_even is None else f'{break_even:.2f}'}). "
             "Accept write-off to save representment and arbitration fees."
         )
 
@@ -182,7 +184,7 @@ def optimize_representment_decision(
         network_arbitration_fee_inr=arb_fee,
         representment_filing_fee_inr=filing_fee,
         expected_net_recovery_inr=expected_net,
-        break_even_amount_inr=break_even if break_even != float("inf") else 999999999.0,
+        break_even_amount_inr=break_even if break_even is not None else Decimal("999999999"),
         recommended_action=action,
         rationale=rationale,
     )

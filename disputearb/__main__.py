@@ -1,7 +1,8 @@
 """
 CLI Entrypoint for `disputearb`:
   - `python -m disputearb bench`
-  - `python -m disputearb serve --port 8014`
+  - `python -m disputearb serve`              (settings: DISPUTEARB_* environment variables)
+  - `python -m disputearb migrate`            (apply database migrations and exit)
 """
 
 from __future__ import annotations
@@ -10,8 +11,6 @@ import argparse
 import json
 import os
 import sys
-
-import uvicorn
 
 from disputearb.bench import run_benchmark
 
@@ -28,18 +27,36 @@ def main(argv: list[str] | None = None) -> int:
     bench_p.add_argument("--json", action="store_true", help="Print raw JSON output")
 
     serve_p = sub.add_parser("serve", help="Start the FastAPI server and interactive console")
-    serve_p.add_argument("--host", type=str, default="127.0.0.1", help="Host address (default: 127.0.0.1)")
-    serve_p.add_argument("--port", type=int, default=8014, help="Port number (default: 8014)")
+    serve_p.add_argument("--host", type=str, help="Host address (default DISPUTEARB_HOST or 127.0.0.1; others need API keys)")
+    serve_p.add_argument("--port", type=int, help="Port number (default DISPUTEARB_PORT or 8014)")
+    sub.add_parser("migrate", help="Apply database migrations to DISPUTEARB_DATABASE_URL")
 
     args = parser.parse_args(argv)
     if not 10 <= getattr(args, "cases", 300) <= 100_000:
         parser.error("--cases must be between 10 and 100000")
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if args.command == "serve":
-        if args.host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get("DISPUTEARB_API_KEY"):
-            print("Refusing to listen on a non-loopback address without DISPUTEARB_API_KEY set.", file=sys.stderr)
+    if args.command in ("serve", "migrate"):
+        from disputearb import db, ops
+
+        for name, val in (("HOST", getattr(args, "host", None)), ("PORT", getattr(args, "port", None))):
+            if val is not None:
+                os.environ[f"DISPUTEARB_{name}"] = str(val)
+        try:
+            settings = ops.load_settings()  # fail here, before uvicorn, with a readable message
+        except ops.ConfigError as e:
+            print(f"configuration error: {e}", file=sys.stderr)
             return 2
-        uvicorn.run("disputearb.api:app", host=args.host, port=args.port, log_level="info")
+        if args.command == "migrate":
+            print(*(db.migrate(db.engine(settings.database_url)) or ["up to date"]), sep="\n")
+            return 0
+        import uvicorn
+
+        ops.setup_logging(settings.log_level)
+        try:
+            uvicorn.run("disputearb.api:app", host=settings.host, port=settings.port, log_config=None, access_log=False)
+        except ops.ConfigError as e:  # raised while importing the app, e.g. no merchant key in production
+            print(f"configuration error: {e}", file=sys.stderr)
+            return 2
         return 0
 
     # Default or "bench" command

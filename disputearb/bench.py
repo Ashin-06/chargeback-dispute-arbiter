@@ -24,6 +24,7 @@ import copy
 import hashlib
 import random
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Dict, List, Tuple
 
 from disputearb.arbiter import (
@@ -40,6 +41,7 @@ from disputearb.receipts import (
     CheckoutAuthLeaf,
     DeliveryProofLeaf,
     EvidencePacket,
+    PAISE,
     MerchantSigner,
     PostPurchaseUsageLeaf,
     UsageEvent,
@@ -497,7 +499,7 @@ def generate_synthetic_disputes(
     return cases, signer
 
 
-def _ground_truth_fight_payoff(case: SyntheticDisputeCase, decision: ArbitrationDecision) -> float:
+def _ground_truth_fight_payoff(case: SyntheticDisputeCase, decision: ArbitrationDecision) -> Decimal:
     """
     Compute the expected net ₹ recovery when a strategy chooses to FIGHT_REPRESENTMENT
     on `case`:
@@ -516,10 +518,10 @@ def _ground_truth_fight_payoff(case: SyntheticDisputeCase, decision: Arbitration
 
     if case.ground_truth_category == CLASS_TAMPERED_REJECTED:
         # 0% win rate + arbitration fee + filing fee + ₹1,500 forged-representment compliance penalty
-        return -(arb_fee + filing_fee + 1500.0)
+        return -(arb_fee + filing_fee + Decimal("1500"))
 
-    p_win = decision.ev_optimization.win_probability
-    return p_win * amount - (1.0 - p_win) * arb_fee - filing_fee
+    p_win = Decimal(str(decision.ev_optimization.win_probability))
+    return p_win * amount - (1 - p_win) * arb_fee - filing_fee
 
 
 @dataclass
@@ -529,8 +531,8 @@ class StrategyBenchmarkMetrics:
     disputes_fought: int
     disputes_written_off: int
     disputes_auto_refunded: int
-    total_net_recovery_inr: float
-    avg_net_recovery_per_dispute_inr: float
+    total_net_recovery_inr: Decimal
+    avg_net_recovery_per_dispute_inr: Decimal
     forged_packets_submitted: int
 
     def to_dict(self) -> Dict[str, Any]:
@@ -540,8 +542,8 @@ class StrategyBenchmarkMetrics:
             "disputes_fought": self.disputes_fought,
             "disputes_written_off": self.disputes_written_off,
             "disputes_auto_refunded": self.disputes_auto_refunded,
-            "total_net_recovery_inr": round(self.total_net_recovery_inr, 2),
-            "avg_net_recovery_per_dispute_inr": round(self.avg_net_recovery_per_dispute_inr, 2),
+            "total_net_recovery_inr": self.total_net_recovery_inr.quantize(PAISE).to_eng_string(),
+            "avg_net_recovery_per_dispute_inr": self.avg_net_recovery_per_dispute_inr.quantize(PAISE).to_eng_string(),
             "forged_packets_submitted": self.forged_packets_submitted,
         }
 
@@ -575,28 +577,28 @@ def run_benchmark(num_cases: int = 300, seed: int = 20261014) -> Dict[str, Any]:
             "fought": 0,
             "write_off": 0,
             "auto_refund": 0,
-            "net_inr": 0.0,
+            "net_inr": Decimal("0"),
             "forged_submitted": 0,
         },
         "naive_fight_all": {
             "fought": 0,
             "write_off": 0,
             "auto_refund": 0,
-            "net_inr": 0.0,
+            "net_inr": Decimal("0"),
             "forged_submitted": 0,
         },
         "naive_amount_threshold_5000": {
             "fought": 0,
             "write_off": 0,
             "auto_refund": 0,
-            "net_inr": 0.0,
+            "net_inr": Decimal("0"),
             "forged_submitted": 0,
         },
         "unverified_evidence": {
             "fought": 0,
             "write_off": 0,
             "auto_refund": 0,
-            "net_inr": 0.0,
+            "net_inr": Decimal("0"),
             "forged_submitted": 0,
         },
     }
@@ -640,7 +642,7 @@ def run_benchmark(num_cases: int = 300, seed: int = 20261014) -> Dict[str, Any]:
         elif act == "AUTO_REFUND_PRE_DISPUTE":
             strat_stats["cryptographic_ev_arbiter"]["auto_refund"] += 1
             # Assumed: a pre-dispute refund saves a ₹150 network dispute fee (illustrative figure)
-            strat_stats["cryptographic_ev_arbiter"]["net_inr"] += 150.0
+            strat_stats["cryptographic_ev_arbiter"]["net_inr"] += Decimal("150")
         else:
             strat_stats["cryptographic_ev_arbiter"]["write_off"] += 1
 
@@ -691,7 +693,7 @@ def run_benchmark(num_cases: int = 300, seed: int = 20261014) -> Dict[str, Any]:
                 strat_stats["unverified_evidence"]["forged_submitted"] += 1
         elif unverified_ev.recommended_action == "AUTO_REFUND_PRE_DISPUTE":
             strat_stats["unverified_evidence"]["auto_refund"] += 1
-            strat_stats["unverified_evidence"]["net_inr"] += 150.0
+            strat_stats["unverified_evidence"]["net_inr"] += Decimal("150")
         else:
             strat_stats["unverified_evidence"]["write_off"] += 1
 
@@ -713,10 +715,10 @@ def run_benchmark(num_cases: int = 300, seed: int = 20261014) -> Dict[str, Any]:
     ce30_rate = ce30_caught / max(1, ce30_total)
     accuracy = classification_correct / max(1, num_cases)
 
-    ours_net = strategies_out["cryptographic_ev_arbiter"]["total_net_recovery_inr"]
-    fight_all_net = strategies_out["naive_fight_all"]["total_net_recovery_inr"]
-    threshold_net = strategies_out["naive_amount_threshold_5000"]["total_net_recovery_inr"]
-    unverified_net = strategies_out["unverified_evidence"]["total_net_recovery_inr"]
+    ours_net = Decimal(strategies_out["cryptographic_ev_arbiter"]["total_net_recovery_inr"])
+    fight_all_net = Decimal(strategies_out["naive_fight_all"]["total_net_recovery_inr"])
+    threshold_net = Decimal(strategies_out["naive_amount_threshold_5000"]["total_net_recovery_inr"])
+    unverified_net = Decimal(strategies_out["unverified_evidence"]["total_net_recovery_inr"])
 
     return {
         "total_disputes": num_cases,
@@ -731,8 +733,8 @@ def run_benchmark(num_cases: int = 300, seed: int = 20261014) -> Dict[str, Any]:
         "classification_accuracy": round(accuracy, 4),
         "strategies": strategies_out,
         "net_recovery_uplift_inr": {
-            "vs_naive_fight_all": round(ours_net - fight_all_net, 2),
-            "vs_naive_amount_threshold_5000": round(ours_net - threshold_net, 2),
-            "vs_unverified_evidence": round(ours_net - unverified_net, 2),
+            "vs_naive_fight_all": (ours_net - fight_all_net).quantize(PAISE).to_eng_string(),
+            "vs_naive_amount_threshold_5000": (ours_net - threshold_net).quantize(PAISE).to_eng_string(),
+            "vs_unverified_evidence": (ours_net - unverified_net).quantize(PAISE).to_eng_string(),
         },
     }

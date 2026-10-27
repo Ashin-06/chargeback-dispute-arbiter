@@ -18,10 +18,11 @@ historical transaction ledgers:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from disputearb.optimizer import EVOptimizationResult, optimize_representment_decision
-from disputearb.receipts import EvidencePacket, VerificationResult, as_amount, verify_evidence_packet
+from disputearb.receipts import EvidencePacket, VerificationResult, as_amount, plain, verify_evidence_packet
 from disputearb.rules import (
     HistoricalTransaction,
     RuleEvaluationReport,
@@ -39,13 +40,19 @@ class DisputeClaim:
     dispute_id: str
     txn_id: str
     reason_code: str
-    amount_inr: float
+    amount_inr: Decimal
     cardholder_statement: str
-    network_arbitration_fee_inr: Optional[float] = None
-    representment_filing_fee_inr: Optional[float] = None
+    network_arbitration_fee_inr: Optional[Decimal] = None
+    representment_filing_fee_inr: Optional[Decimal] = None
+
+    def __post_init__(self) -> None:
+        self.amount_inr = as_amount(self.amount_inr)
+        for name in ("network_arbitration_fee_inr", "representment_filing_fee_inr"):
+            if getattr(self, name) is not None:
+                setattr(self, name, as_amount(getattr(self, name)))
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return plain(asdict(self))
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DisputeClaim":

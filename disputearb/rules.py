@@ -16,9 +16,10 @@ Supported Reason Codes:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from disputearb.receipts import EvidencePacket, as_amount, as_bool
+from disputearb.receipts import EvidencePacket, as_amount, as_bool, plain
 
 SECONDS_PER_DAY = 86400.0
 CE30_MIN_AGE_DAYS = 120.0
@@ -35,8 +36,8 @@ class ReasonCodeSpec:
     category: str  # "FRAUD" or "CONSUMER_DISPUTE"
     title: str
     description: str
-    default_arbitration_fee_inr: float
-    default_filing_fee_inr: float
+    default_arbitration_fee_inr: Decimal
+    default_filing_fee_inr: Decimal
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -52,8 +53,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Cardholder claims they did not authorize or participate in a card-absent transaction. "
             "Remediable via Visa Compelling Evidence 3.0 (CE 3.0) or 3DS2 ECI 05 liability shift."
         ),
-        default_arbitration_fee_inr=1200.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1200"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "13.1": ReasonCodeSpec(
         code="13.1",
@@ -64,8 +65,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Cardholder claims paid goods or services were never delivered by the agreed date. "
             "Requires carrier-signed GPS + OTP-verified handoff receipt."
         ),
-        default_arbitration_fee_inr=1200.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1200"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "13.3": ReasonCodeSpec(
         code="13.3",
@@ -76,8 +77,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Cardholder claims delivered merchandise was materially different or defective. "
             "Requires QC inspection hash, delivery signature, and post-delivery usage telemetry."
         ),
-        default_arbitration_fee_inr=1200.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1200"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "13.6": ReasonCodeSpec(
         code="13.6",
@@ -88,8 +89,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Cardholder claims merchant agreed to a refund/credit but never processed it, "
             "or claims duplicate debit when credit ARN already settled."
         ),
-        default_arbitration_fee_inr=1200.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1200"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "13.7": ReasonCodeSpec(
         code="13.7",
@@ -100,8 +101,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Cardholder claims subscription was cancelled prior to billing. "
             "Rebutted by post-billing authenticated app sessions and lack of prior cancellation."
         ),
-        default_arbitration_fee_inr=1200.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1200"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "4837": ReasonCodeSpec(
         code="4837",
@@ -112,8 +113,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Mastercard card-not-present fraud claim. Rebutted by 3DS2 ECI 05/02 CAVV "
             "authentication, historical device/IP footprint, and OTP-verified delivery."
         ),
-        default_arbitration_fee_inr=1250.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1250"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "4853": ReasonCodeSpec(
         code="4853",
@@ -124,8 +125,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "Mastercard consumer dispute over non-delivery or quality. "
             "Rebutted by signed GPS/OTP delivery proof and post-purchase usage logs."
         ),
-        default_arbitration_fee_inr=1250.0,
-        default_filing_fee_inr=250.0,
+        default_arbitration_fee_inr=Decimal("1250"),
+        default_filing_fee_inr=Decimal("250"),
     ),
     "U10": ReasonCodeSpec(
         code="U10",
@@ -136,8 +137,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "NPCI UPI dispute claiming unauthorized debit. Rebutted by device-bound MPIN/3DS "
             "authentication, historical device_id/IP continuity, and post-purchase app sessions."
         ),
-        default_arbitration_fee_inr=600.0,
-        default_filing_fee_inr=120.0,
+        default_arbitration_fee_inr=Decimal("600"),
+        default_filing_fee_inr=Decimal("120"),
     ),
     "U14": ReasonCodeSpec(
         code="U14",
@@ -148,8 +149,8 @@ REASON_CODE_CATALOG: Dict[str, ReasonCodeSpec] = {
             "NPCI UPI dispute where customer claims merchant did not fulfill goods/services "
             "after UPI debit. Rebutted by OTP-verified delivery proof and usage events."
         ),
-        default_arbitration_fee_inr=600.0,
-        default_filing_fee_inr=120.0,
+        default_arbitration_fee_inr=Decimal("600"),
+        default_filing_fee_inr=Decimal("120"),
     ),
 }
 
@@ -161,13 +162,16 @@ class HistoricalTransaction:
     ip_address: str
     device_id: str
     shipping_address_hash: str
-    amount_inr: float
+    amount_inr: Decimal
     timestamp: int
     disputed: bool = False
     three_ds_status: str = "Y"
 
+    def __post_init__(self) -> None:
+        self.amount_inr = as_amount(self.amount_inr)
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return plain(asdict(self))
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HistoricalTransaction":
@@ -347,8 +351,8 @@ def evaluate_reason_code_rules(
             category="FRAUD",
             title=f"Dispute Reason Code {reason_code}",
             description="Generic network dispute reason code.",
-            default_arbitration_fee_inr=1200.0,
-            default_filing_fee_inr=250.0,
+            default_arbitration_fee_inr=Decimal("1200"),
+            default_filing_fee_inr=Decimal("250"),
         ),
     )
 

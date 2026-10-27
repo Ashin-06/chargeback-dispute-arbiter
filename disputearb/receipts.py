@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from cryptography.exceptions import InvalidSignature
@@ -36,17 +36,41 @@ def as_bool(value: Any) -> bool:
     raise ValueError(f"expected a JSON boolean, got {value!r}")
 
 
-def as_amount(value: Any) -> float:
-    """A finite, non-negative amount; float() alone accepts "nan" and "inf"."""
-    amount = float(value)
-    if not math.isfinite(amount) or amount < 0:
-        raise ValueError(f"amount must be a finite non-negative number, got {value!r}")
-    return amount
+PAISE = Decimal("0.01")
+
+
+def as_amount(value: Any) -> Decimal:
+    """Rupees as a Decimal with at most two places (whole paise): finite, non-negative.
+    JSON numbers arrive as floats, so they go through str() to keep the decimal value the
+    sender wrote rather than its binary expansion. Booleans are not amounts."""
+    if isinstance(value, bool):
+        raise ValueError("amount must be a number, not a boolean")
+    try:
+        amount = Decimal(str(value).strip()) if not isinstance(value, Decimal) else value
+    except InvalidOperation:
+        raise ValueError("amount must be a decimal number") from None
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("amount must be a finite non-negative number")
+    if amount != amount.quantize(PAISE):
+        raise ValueError("amount has fractions of a paisa")
+    return amount.quantize(PAISE)
+
+
+def plain(d: Dict[str, Any]) -> Dict[str, Any]:
+    """A flat dataclass dict with its Decimal amounts as exact strings, ready for JSON."""
+    return {k: format(v, "f") if isinstance(v, Decimal) else v for k, v in d.items()}
+
+
+def _json_default(obj: Any) -> str:
+    if isinstance(obj, Decimal):
+        return format(obj, "f")  # "4500.00": exact, and the same however the amount was entered
+    raise TypeError(f"{type(obj).__name__} is not JSON serializable")
 
 
 def canonical_json_bytes(obj: Any) -> bytes:
     """Deterministic JSON serialization for cryptographic hashing."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                      default=_json_default).encode("utf-8")
 
 
 def hash_leaf(leaf_name: str, payload: Dict[str, Any]) -> str:
@@ -72,7 +96,7 @@ def hash_internal(left_hex: str, right_hex: str) -> str:
 class CheckoutAuthLeaf:
     txn_id: str
     account_id: str
-    amount_inr: float
+    amount_inr: Decimal
     three_ds_status: str  # "Y" or "N"
     eci: str  # "05" (fully authenticated), "06" (attempted), "07" (non-3DS)
     cavv: str
@@ -85,8 +109,11 @@ class CheckoutAuthLeaf:
     credit_arn: Optional[str] = None
     cancelled_before_billing: bool = False
 
+    def __post_init__(self) -> None:
+        self.amount_inr = as_amount(self.amount_inr)
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return plain(asdict(self))
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CheckoutAuthLeaf":
