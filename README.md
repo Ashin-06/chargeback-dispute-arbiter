@@ -38,20 +38,25 @@ No public dataset of chargebacks with representment outcomes exists. Public frau
 ## Run it
 
 ```bash
-pip install -r requirements.txt
-python -m pytest -q                       # 10 tests
+pip install -r requirements.txt           # or: pip install -r requirements-dev.lock && pip install -e .
+python -m pytest -q                       # 27 tests
 python -m disputearb bench                # the table above
-python -m disputearb serve --port 8014    # API + console at http://127.0.0.1:8014
+python -m disputearb serve                # API + console at http://127.0.0.1:8014 (demo key, open, loopback only)
+docker build -t chargeback-dispute-arbiter .   # production image; see docs/runbook.md
 ```
 
 | Endpoint | |
 |---|---|
-| `GET /disputes` | 20 sample disputes plus the most recent evaluations (the latest 200 are kept) |
-| `POST /disputes/evaluate` | classify a claim + evidence packet + optional ledger, and return the decision and brief |
-| `POST /receipts/verify` | verify a packet against the server's merchant key |
-| `GET /bench?num_cases=` | the benchmark, 10–2000 cases |
+| `POST /disputes/evaluate` | classify a claim + evidence packet + optional ledger, return the decision and brief, and store it (`dispute_ref`) |
+| `POST /receipts/verify` | verify a packet against the merchant's public key |
+| `GET /disputes`, `GET /disputes/{ref}` | stored disputes, newest first (in development, 20 sample disputes are seeded) |
+| `POST /disputes/{ref}/review` | record what was done: `represented`, `written_off`, `refunded` (or back to `open`), with a note |
+| `GET /bench?num_cases=` | the benchmark, 10–2000 cases (admin only: CPU-heavy) |
+| `GET /healthz`, `/readyz`, `/metrics` | liveness, readiness, Prometheus metrics |
 
-Set `DISPUTEARB_API_KEY` to require it in the `X-API-Key` header (the console has a field for it), and `DISPUTEARB_SIGNING_KEY` (64 hex characters) to use a fixed merchant key. Without the API key the server runs open, and `serve` refuses to bind a non-loopback address. POST bodies are capped at 1 MB.
+Amounts are rupees with at most two decimal places. They are handled as `Decimal` throughout, returned as exact decimal strings (`"4500.00"`) and stored as integer paise. Each caller gets an API key with a role: `intake` submits disputes, `viewer` reads, `analyst` submits, reads and records outcomes, `monitor` scrapes metrics, `admin` can also run the benchmark. Make one with `python -m disputearb.ops keygen` and list its hash in `DISPUTEARB_API_KEYS` or `DISPUTEARB_KEYS_FILE`; the console has a field for the key.
+
+Evidence is verified against `DISPUTEARB_MERCHANT_PUBLIC_KEY` (64 hex). In production that key is required, and the service refuses to start if it is also given the merchant's signing key: signing belongs at checkout, not in the system that judges the evidence. In development, without a public key, a demo key (`DISPUTEARB_SIGNING_KEY` or a random one) signs the sample disputes. Without API keys the server runs open and refuses to bind a non-loopback address. Settings, key rotation and backups are in [docs/runbook.md](docs/runbook.md).
 
 ## Limits
 
@@ -60,4 +65,22 @@ Set `DISPUTEARB_API_KEY` to require it in the `X-API-Key` header (the console ha
 - **Uncalibrated P(win) and a circular benchmark.** See above.
 - **Rule details are approximations.** The CE 3.0 age window is measured from the transaction date, and other Visa conditions are not checked (same card, merchant-provided descriptions, exclusions).
 - **Synthetic data only.** All 300 cases and the sample disputes are generated.
-- **No deployment story**: no TLS, rate limiting, key management service, persistence or audit log. The dispute store is in memory.
+- **Thin case management.** Disputes and analysts' outcomes are stored, but there is no assignment, network deadline tracking or tamper-evident history. TLS is left to the ingress.
+
+## Production readiness
+
+**In place** (see [docs/runbook.md](docs/runbook.md) and [docs/threat-model.md](docs/threat-model.md)):
+- Pinned dependencies (`requirements.lock`), `pyproject.toml`, a container image that runs as a non-root user with a health check, and CI (ruff, bandit, pip-audit, tests with coverage).
+- Production mode that refuses to start without hashed per-client API keys, a database and the merchant's public key, and refuses to hold the merchant's signing key. No default secrets and no public listening without keys.
+- Roles on keys, per-client rate limits, a body cap, security headers, CORS only for listed origins, and errors that don't echo the submitted values.
+- Money as `Decimal` in rupees and paise, never float; integer paise in the database.
+- Evaluated disputes and analysts' outcomes in SQLite or Postgres, with numbered migrations.
+- JSON logs with request IDs, `/healthz`, `/readyz`, and Prometheus metrics by recommended action.
+
+**Still needed before it handles real disputes**, none of which code can supply:
+- An independent security review and penetration test, and a review of the evidence format by someone who files representments with Visa, Mastercard and NPCI.
+- Win probabilities measured on the bank's or merchant's own representment history. The weights are hand-set and the benchmark is circular (see Results).
+- Evidence signed by its sources at the time of the event (3DS server, carrier, app backend) with trusted timestamps, instead of by the merchant.
+- Real integrations with the card networks' dispute systems (Visa Resolve Online, Mastercom, NPCI's dispute management system) and the payment gateway.
+- Sign-off under the card network rules, RBI's directions on disputes and turnaround times, and the DPDP Act 2023 for the stored cardholder data. The merchant's signing key should sit in an HSM or a KMS.
+- An on-call team with SLOs that cover network response deadlines.
