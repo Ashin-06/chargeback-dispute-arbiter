@@ -65,3 +65,7 @@ In production the service refuses to hold the merchant's signing key: signing be
 - The code has not had an independent security review.
 
 See [SECURITY.md](SECURITY.md) and [docs/threat-model.md](docs/threat-model.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
