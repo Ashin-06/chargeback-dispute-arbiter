@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+from decimal import Decimal
 
 from disputearb.bench import run_benchmark
 
@@ -83,13 +84,13 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{name:<32} | {st['disputes_fought']:>6} | {st['disputes_written_off']:>8} | "
             f"{st['disputes_auto_refunded']:>7} | {st['forged_packets_submitted']:>9} | "
-            f"INR {st['total_net_recovery_inr']:>14,.2f}"
+            f"INR {Decimal(st['total_net_recovery_inr']):>14,.2f}"
         )
     print("-" * 86)
     uplift = report["net_recovery_uplift_inr"]
-    print(f"Net Recovery Uplift vs Naive Fight-All         : +INR {uplift['vs_naive_fight_all']:,.2f}")
-    print(f"Net Recovery Uplift vs Naive Amount >= 5,000   : +INR {uplift['vs_naive_amount_threshold_5000']:,.2f}")
-    print(f"Net Recovery Uplift vs Unverified Evidence     : +INR {uplift['vs_unverified_evidence']:,.2f}")
+    print(f"Net Recovery Uplift vs Naive Fight-All         : +INR {Decimal(uplift['vs_naive_fight_all']):,.2f}")
+    print(f"Net Recovery Uplift vs Naive Amount >= 5,000   : +INR {Decimal(uplift['vs_naive_amount_threshold_5000']):,.2f}")
+    print(f"Net Recovery Uplift vs Unverified Evidence     : +INR {Decimal(uplift['vs_unverified_evidence']):,.2f}")
     print("=" * 86)
     return 0
 
